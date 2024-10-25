@@ -73,6 +73,81 @@ class CrossFormerModel:
     example_batch: Data
     dataset_statistics: Optional[Data]
 
+  # Add these methods to the CrossFormerModel class in crossformer/model/crossformer_model.py:
+
+  def analyze_attention(
+      self,
+      observations: Data,
+      tasks: Data,
+      head_name: str,
+  ) -> Tuple[jnp.ndarray, Dict[str, List[str]]]:
+      """
+      Computes attention rollout from readout tokens to input tokens.
+      Returns the attention rollout weights and a mapping from token indices to token names.
+      
+      Args:
+          observations: Dictionary of observations 
+          tasks: Dictionary of task specifications
+          head_name: Name of the readout head to analyze
+      Returns:
+          rollout: Attention rollout weights from readout to input tokens
+          token_map: Mapping from token indices to token types
+      """
+      # Run transformer with attention weights stored
+      transformer_outputs = self.module.apply(
+          {"params": self.params},
+          observations,
+          tasks,
+          observations["timestep_pad_mask"],
+          train=False,
+          method="crossformer_transformer",
+          mutable=["intermediates"],
+      )
+  
+      outputs, variables = transformer_outputs
+      attention_weights = []
+      
+      # Extract attention weights from each transformer block
+      for i in range(self.config["model"]["transformer_kwargs"]["num_layers"]):
+          block_name = f'encoderblock_{i}'
+          if block_name in variables['intermediates']['crossformer_transformer']['BlockTransformer_0']['Transformer_0']:
+              layer_attention = variables['intermediates']['crossformer_transformer']['BlockTransformer_0']['Transformer_0'][block_name]['MultiHeadDotProductAttention_0']['attention_weights'][0]
+              attention_weights.append(layer_attention)
+  
+      # Average attention weights across heads
+      attention_weights = [jnp.mean(weights, axis=1) for weights in attention_weights]
+      
+      # Build token map
+      token_map = {}
+      curr_idx = 0
+      # Map prefix tokens
+      for prefix_group in outputs.keys():
+          if prefix_group.startswith("task_"):
+              n_tokens = outputs[prefix_group].tokens.shape[-2]
+              token_map[curr_idx:curr_idx + n_tokens] = [prefix_group] * n_tokens
+              curr_idx += n_tokens
+              
+      # Map observation tokens
+      for obs_group in outputs.keys():
+          if obs_group.startswith("obs_"):
+              n_tokens = outputs[obs_group].tokens.shape[-2]
+              token_map[curr_idx:curr_idx + n_tokens] = [obs_group] * n_tokens
+              curr_idx += n_tokens
+  
+      # Map readout tokens
+      readout_key = f"readout_{head_name}"
+      n_tokens = outputs[readout_key].tokens.shape[-2]
+      token_map[curr_idx:curr_idx + n_tokens] = [readout_key] * n_tokens
+  
+      # Compute attention rollout
+      rollout = attention_weights[0]
+      for attention in attention_weights[1:]:
+          rollout = jnp.matmul(attention, rollout)
+      
+      # Normalize rollout
+      rollout = rollout / rollout.sum(axis=-1, keepdims=True)
+      
+      return rollout, token_map
     def create_tasks(
         self, goals: Optional[Data] = None, texts: Optional[Sequence[str]] = None
     ):

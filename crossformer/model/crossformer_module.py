@@ -398,6 +398,7 @@ class CrossFormerModule(nn.Module):
                 dropout_rate (float): dropout rate.
                 attention_dropout_rate (float): dropout rate in self attention.
         """
+        print(transformer_kwargs)
 
         observation_tokenizer_defs = {
             k: ModuleSpec.instantiate(spec)()
