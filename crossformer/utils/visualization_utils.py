@@ -2,70 +2,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
 
-def plot_attention_rollout(
-    model,
-    observations: dict,
-    tasks: dict,
-    readout_name: str,
-    save_path: str = None,
-) -> plt.Figure:
-    """
-    Visualizes attention rollout from readout tokens to input tokens.
-    
-    Args:
-        model: CrossFormerModel instance
-        observations: Dictionary of observations
-        tasks: Dictionary of task specifications
-        readout_name: Name of readout head to analyze (e.g. "readout_single_arm")
-        save_path: Optional path to save visualization
-    Returns:
-        matplotlib Figure
-    """
-    # Get attention rollout and token mapping
-    rollout, token_map = model.analyze_attention(observations, tasks, readout_name.replace("readout_", ""))
-    
-    # Create figure
-    fig = plt.figure(figsize=(15, 5))
-    
-    # Plot images with attention overlay
-    n_timesteps = observations["timestep_pad_mask"].shape[1]
-    for t in range(n_timesteps):
-        plt.subplot(1, n_timesteps, t+1)
-        
-        # Get image tokens for this timestep
-        obs_token_idxs = [i for i, name in token_map.items() if name.startswith("obs_")]
-        obs_attention = rollout[t, obs_token_idxs]
-        
-        # Reshape attention to match image grid
-        grid_size = int(np.sqrt(len(obs_token_idxs) // len(model.config["model"]["observation_tokenizers"])))
-        attention_grid = obs_attention.reshape(grid_size, grid_size)
-        
-        # Get image for this timestep
-        for k,v in observations.items():
-            if k.startswith("image_"):
-                img = v[0,t]
-                break
-        
-        # Plot image
-        plt.imshow(img)
-        
-        # Overlay attention heatmap
-        attention_resized = jnp.array(plt.mpl.transforms.resize(attention_grid, img.shape[:2]))
-        plt.imshow(attention_resized, cmap='hot', alpha=0.5)
-        plt.axis('off')
-        plt.title(f'Timestep {t}')
-    
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    
-    return fig
+def get_observation_image(observation, observation_type):
+    image=None
+    for k in observation.keys():
+        if observation_type in k:
+            image = observation[k].squeeze()
+            break
+    return image
 
 def plot_readout_attention(
-    model,
-    observations: dict,
-    tasks: dict,
-    readout_name: str,
+    rollouts,
+    token_types,
+    head,
+    observations,
+    observation_type = "_high",
+    observation_image=None,
     save_path: str = None,
 ) -> plt.Figure:
     """
@@ -80,27 +31,73 @@ def plot_readout_attention(
     Returns:
         matplotlib Figure
     """
-    # Get attention rollout and token mapping
-    rollout, token_map = model.analyze_attention(observations, tasks, readout_name.replace("readout_", ""))
+    indexes_readout = []
+    indexes_obs = []
+    for i, j in enumerate(token_types):
+        if j == head:
+            indexes_readout.append(i)
+        if observation_type in j:
+            indexes_obs.append(i)
+    num_timesteps =  rollouts.shape[0]
+    num_images = len(indexes_readout)
+    # Create a grid of subplots: num_images rows × num_timesteps columns
+    fig, axs = plt.subplots(1, num_timesteps+1,squeeze=False) 
+                           #figsize=(4*num_timesteps, 4*num_images),squeeze=False)
+
+    if observation_image is None:
+      observation_image = get_observation_image(observations, observation_type)
+    im = axs[0, 0].imshow(observation_image, cmap='viridis')
+
+    # If there's only one image, wrap axs in a list to make it 2D
+    if num_images == 1:
+        axs = np.array([axs])
+
+    for t in range(num_timesteps):
+        rollout = rollouts[t]
+        # Create heatmap
     
-    # Create heatmap
-    fig, ax = plt.subplots(figsize=(10, 8))
-    im = ax.imshow(rollout, cmap='viridis')
+        images_per_readout = []
+        for num_image in range(num_images):
+            image = np.zeros((224,224))
+            x=0
+            y=0
+            for index_obs in indexes_obs:
+                attention = rollout[indexes_readout[num_image], index_obs]
+                image[x:x+32, y:y+32] = attention
+                x+= 32
+                if x== 224:
+                    x=0
+                    y+=32
+            images_per_readout.append(image.copy())
+            # Plot the image in the corresponding subplot
+        average_readout_image = np.asarray(images_per_readout).mean(0)
+        # Plot original image
+        axs[0, t+1].imshow(observation_image)
+        # Overlay attention map with alpha
+        alpha = average_readout_image / average_readout_image.max()  # Normalize to [0,1]s
+        # We subtract alpha from 1 as the higher the attention the closer to zero should the alpha value be as a
+        # value of 0 means transparent and 1 means opaque.
+
+        alpha = 1-alpha
+        
+        # Create a dark overlay
+
+        dark_overlay = np.zeros((observation_image.shape[0], observation_image.shape[1],1))
+
+        axs[0, t+1].imshow(dark_overlay, alpha=alpha, cmap='gray')
+
+        axs[0,t+1].axis('off')  # Remove axes
+            
+        axs[0, t+1].set_title(f'Timestep {t}')
+            
     
-    # Add token labels
-    token_labels = list(token_map.values())
-    ax.set_xticks(np.arange(len(token_labels)))
-    ax.set_yticks(np.arange(len(token_labels)))
-    ax.set_xticklabels(token_labels, rotation=45, ha='right')
-    ax.set_yticklabels(token_labels)
-    
-    # Add colorbar
-    plt.colorbar(im)
-    
-    plt.title(f'Attention Weights from {readout_name}')
+        
+        
+    # Add a colorbar that applies to all subplots
+    #fig.colorbar(im, ax=axs.ravel().tolist())
     plt.tight_layout()
     
     if save_path:
         plt.savefig(save_path)
-        
+
     return fig
