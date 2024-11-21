@@ -20,8 +20,7 @@ from crossformer.model.components.action_heads import ActionHead
 from crossformer.model.crossformer_module import CrossFormerModule
 from crossformer.utils.spec import ModuleSpec
 from crossformer.utils.typing import Config, Data, Params, PRNGKey, Sequence
-
-
+import time
 @struct.dataclass
 class CrossFormerModel:
     """Recommended way of interacting with CrossFormer models.
@@ -77,7 +76,6 @@ class CrossFormerModel:
         self,
         observations: Data,
         tasks: Data,
-        head_name: str,
     ) -> Tuple[jnp.ndarray, Dict[str, List[str]]]:
         """
         Computes attention rollout from readout tokens to input tokens.
@@ -86,7 +84,6 @@ class CrossFormerModel:
         Args:
             observations: Dictionary of observations 
             tasks: Dictionary of task specifications
-            head_name: Name of the readout head to analyze
         Returns:
             rollout: Attention rollout weights from readout to input tokens
             token_map: Mapping from token indices to token types
@@ -103,6 +100,30 @@ class CrossFormerModel:
         )
     
         outputs, variables = transformer_outputs
+    
+            # Count and print token breakdown
+        token_counts = {}
+    
+        print(outputs.keys())
+        # Count prefix tokens
+        for prefix_group in outputs.keys():
+            if prefix_group.startswith("task_"):
+                n_tokens = outputs[prefix_group].tokens.shape[-2]
+                token_counts[prefix_group] = n_tokens
+                
+        # Count observation tokens
+        for obs_group in outputs.keys():
+            if obs_group.startswith("obs_"):
+                n_tokens = outputs[obs_group].tokens.shape[-2]
+                token_counts[obs_group] = n_tokens
+                
+        # Count readout tokens
+        head_names = ['readout_bimanual', 'readout_nav', 'readout_quadruped', 'readout_single_arm']
+        for readout_key in head_names:
+            if readout_key in outputs:
+                n_tokens = outputs[readout_key].tokens.shape[-2]
+                token_counts[readout_key] = n_tokens
+        
         attention_weights = []
         
         # Extract attention weights from each transformer block
@@ -112,6 +133,14 @@ class CrossFormerModel:
                 layer_attention = variables['intermediates']['crossformer_transformer']['BlockTransformer_0']['Transformer_0'][block_name]['MultiHeadDotProductAttention_0']['attention_weights'][0]
                 attention_weights.append(layer_attention)
     
+        print("Token count breakdown:")
+        total = 0
+        for k, v in token_counts.items():
+            print(f"{k}: {v} tokens")
+            total += v
+        print(f"Total tokens: {total}")
+    
+        
         # Average attention weights across heads
         attention_weights = [jnp.mean(weights, axis=1) for weights in attention_weights]
         
@@ -120,22 +149,11 @@ class CrossFormerModel:
         
         # Map prefix tokens
         for prefix_group in outputs.keys():
-            if prefix_group.startswith("task_"):
+            print(prefix_group)
+            if "_" in prefix_group:
                 n_tokens = outputs[prefix_group].tokens.shape[-2]
                 token_types.extend([prefix_group] * n_tokens)
-                
-        # Map observation tokens
-        for obs_group in outputs.keys():
-            if obs_group.startswith("obs_"):
-                n_tokens = outputs[obs_group].tokens.shape[-2]
-                token_types.extend([obs_group] * n_tokens)
-    
-        # Map readout tokens
-        readout_key = f"readout_{head_name}"
-        if readout_key in outputs:
-            n_tokens = outputs[readout_key].tokens.shape[-2]
-            token_types.extend([readout_key] * n_tokens)
-    
+                    
         # Compute attention rollout
         rollout = attention_weights[0]
         for attention in attention_weights[1:]:
@@ -145,7 +163,6 @@ class CrossFormerModel:
         rollout = rollout / rollout.sum(axis=-1, keepdims=True)
         
         return rollout, token_types
-
 
     def create_tasks(
         self, goals: Optional[Data] = None, texts: Optional[Sequence[str]] = None
@@ -346,8 +363,8 @@ class CrossFormerModel:
             checkpoint_path = _download_from_huggingface(
                 checkpoint_path.removeprefix("hf://")
             )
-
         # load config
+
         with tf.io.gfile.GFile(
             tf.io.gfile.join(checkpoint_path, "config.json"), "r"
         ) as f:
@@ -388,6 +405,7 @@ class CrossFormerModel:
             example_batch["task"],
             example_batch["observation"]["timestep_pad_mask"],
         )
+        # This function call takes over 95% of the total computation time 
         params_shape = jax.eval_shape(
             partial(module.init, train=False), jax.random.PRNGKey(0), *init_args
         )["params"]

@@ -40,6 +40,7 @@ def plot_readout_attention(
             indexes_obs.append(i)
     num_timesteps =  rollouts.shape[0]
     num_images = len(indexes_readout)
+    print(indexes_readout)
     # Create a grid of subplots: num_images rows × num_timesteps columns
     fig, axs = plt.subplots(1, num_timesteps+1,squeeze=False) 
                            #figsize=(4*num_timesteps, 4*num_images),squeeze=False)
