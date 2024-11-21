@@ -1,4 +1,5 @@
 tests/debug_dataset/bridge_dataset/1.0.0/dataset_statistics_*.json
+.conda_config
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
