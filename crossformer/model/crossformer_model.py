@@ -104,7 +104,6 @@ class CrossFormerModel:
             # Count and print token breakdown
         token_counts = {}
     
-        print(outputs.keys())
         # Count prefix tokens
         for prefix_group in outputs.keys():
             if prefix_group.startswith("task_"):
@@ -133,12 +132,12 @@ class CrossFormerModel:
                 layer_attention = variables['intermediates']['crossformer_transformer']['BlockTransformer_0']['Transformer_0'][block_name]['MultiHeadDotProductAttention_0']['attention_weights'][0]
                 attention_weights.append(layer_attention)
     
-        print("Token count breakdown:")
-        total = 0
-        for k, v in token_counts.items():
-            print(f"{k}: {v} tokens")
-            total += v
-        print(f"Total tokens: {total}")
+        #print("Token count breakdown:")
+        #total = 0
+        #for k, v in token_counts.items():
+        #    print(f"{k}: {v} tokens")
+        #    total += v
+        #print(f"Total tokens: {total}")
     
         
         # Average attention weights across heads
@@ -149,7 +148,6 @@ class CrossFormerModel:
         
         # Map prefix tokens
         for prefix_group in outputs.keys():
-            print(prefix_group)
             if "_" in prefix_group:
                 n_tokens = outputs[prefix_group].tokens.shape[-2]
                 token_types.extend([prefix_group] * n_tokens)
