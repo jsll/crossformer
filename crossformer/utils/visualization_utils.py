@@ -18,6 +18,7 @@ def plot_readout_attention(
     observation_type = "_high",
     observation_image=None,
     save_path: str = None,
+    title = ""
 ) -> plt.Figure:
     """
     Plots attention weights from readout tokens as a heatmap.
@@ -84,13 +85,17 @@ def plot_readout_attention(
         # Create a dark overlay
 
         dark_overlay = np.zeros((observation_image.shape[0], observation_image.shape[1],1))
+        axs[0,t].axis('off')  # Remove axes
 
         axs[0, t+1].imshow(dark_overlay, alpha=alpha, cmap='gray')
 
         axs[0,t+1].axis('off')  # Remove axes
             
-        axs[0, t+1].set_title(f'Timestep {t}')
-            
+        #axs[0, t+1].set_title(f'Timestep {t}')
+
+        axs[0, t].set_title(title)
+        axs[0, t+1].set_title(f'Attention Rollout')
+ 
     
         
         

@@ -27,3 +27,7 @@ plotly >= 5.16.1
 matplotlib
 rail_tpu_utils
 opencv-python
+pandas
+apache_beam
+tfds-nightly
+jupyterlab
