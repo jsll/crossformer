@@ -76,6 +76,7 @@ class CrossFormerModel:
         self,
         observations: Data,
         tasks: Data,
+        head_fusion = "mean",
     ) -> Tuple[jnp.ndarray, Dict[str, List[str]]]:
         """
         Computes attention rollout from readout tokens to input tokens.
@@ -140,8 +141,15 @@ class CrossFormerModel:
         #print(f"Total tokens: {total}")
     
         
-        # Average attention weights across heads
-        attention_weights = [jnp.mean(weights, axis=1) for weights in attention_weights]
+        if head_fusion == "mean":
+            attention_weights = [jnp.mean(weights, axis=1) for weights in attention_weights]
+        elif head_fusion == "max":
+            attention_weights = [jnp.max(weights, axis=1) for weights in attention_weights]
+        elif head_fusion == "min":
+            attention_weights = [jnp.min(weights, axis=1) for weights in attention_weights]
+        else:
+            raise "Attention head fusion type Not supported."
+
         
         # Build token type list
         token_types = []
@@ -153,14 +161,20 @@ class CrossFormerModel:
                 token_types.extend([prefix_group] * n_tokens)
                     
         # Compute attention rollout
-        rollout = attention_weights[0]
+        # TODO Add identity matrix to the attention rollout to account for residual connections
+        I = jnp.eye(attention_weights[0].shape[1])
+        A = 0.5*(attention_weights[0]+I)
+        rollout = A/A.sum(axis=-1, keepdims=True)
+        
         for attention in attention_weights[1:]:
-            rollout = jnp.matmul(attention, rollout)
+            A = 0.5*(attention+I)
+            A = A/A.sum(axis=-1, keepdims=True)
+            rollout = jnp.matmul(rollout, A)
         
         # Normalize rollout
-        rollout = rollout / rollout.sum(axis=-1, keepdims=True)
+        #rollout = rollout / rollout.sum(axis=-1, keepdims=True)
         
-        return rollout, token_types
+        return rollout, token_types, outputs, variables
 
     def create_tasks(
         self, goals: Optional[Data] = None, texts: Optional[Sequence[str]] = None
@@ -513,6 +527,7 @@ class CrossFormerModel:
         module = CrossFormerModule.create(**config["model"])
         rng = rng if rng is not None else jax.random.PRNGKey(0)
         example_batch = multihost_utils.process_allgather(example_batch)
+        print(example_batch) 
         example_batch = jax.tree_map(lambda x: x[:1], example_batch)
 
         init_args = (
